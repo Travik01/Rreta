@@ -1,0 +1,56 @@
+name: protein_dynamics
+channels:
+  - conda-forge
+  - pytorch
+  - defaults
+
+dependencies:
+  # Python
+  - python=3.10
+  
+  # PyTorch (выбери версию под свою CUDA)
+  - pytorch::pytorch=2.1.0
+  - pytorch::torchvision
+  - pytorch::torchaudio
+  - pytorch::pytorch-cuda=11.8  # Или 12.1 для новых GPU
+  
+  # MACE и зависимости (все pip-пакеты в одном блоке!)
+  - pip
+  - pip:
+    - mace-torch==0.3.3         # 🔥 Главная зависимость!
+    - e3nn==0.5.1               # Equivariant нейросети
+    - ase==3.22.1               # Atomic Simulation Environment
+    - fair-esm==2.0.0           # ESMFold локально (опционально)
+    - transformers==4.35.0
+
+  # Биоинформатика
+  - biopython=1.81
+  - mdanalysis=2.6.0
+  - mdtraj=1.9.9
+  - nglview=3.0.8
+  - biotite>=0.37
+  
+  # Химия
+  - rdkit=2023.9.1
+  - openmm>=8.1.1
+  - pdbfixer=1.9
+  - openmmforcefields>=0.15.1
+  - openff-toolkit>=0.14.0
+  
+  # Научные вычисления
+  - numpy=1.24.3
+  - scipy=1.11.3
+  - pandas=2.1.1
+  
+  # Визуализация
+  - matplotlib=3.8.0
+  - seaborn=0.13.0
+  - plotly=5.17.0
+  - py3dmol=2.0.4
+  
+  # Утилиты
+  - jupyter=1.0.0
+  - jupyterlab=4.0.6
+  - tqdm=4.66.1
+  - pyyaml=6.0.1
+  - requests=2.31.0

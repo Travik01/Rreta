@@ -1,0 +1,70 @@
+# ================================================================
+# Конфигурация пайплайна: Белок + Лиганд → MD → Анализ
+# ================================================================
+
+# === СТРУКТУРА БЕЛКА ===
+structure_prediction:
+  # Аминокислотная последовательность (FASTA формат)
+  sequence: |
+    MENFQKVEKIGEGTYGVVYKARNKLTGEVVALKKIRLDTETEGVPSTAIREISLLKELNH
+    PNIVKLLDVIHTENKLYLVFEFLHQDLKKFMDASALTGIPLPLIKSYLFQLLQGLAFCHS
+    HRVLHRDLKPQNLLINTEGAIKLADFGLARAFGVPVRTYTHEVVTLWYRAPEILLGCKYY
+    STAVDIWSLGCIFAEMVTRRALFPGDSEIDQLFRIFRTLGTPDEVVWPGVTSMPDYKPSF
+    PKWARQDFSKVVPPLDEDGRSLLSQMLHYDPNKRISAKAALAHPFFQDVTKPVPHLRL
+  
+  # Метод предсказания
+  use_local: false  # false = API (бесплатно), true = локально (нужна GPU)
+
+# === ДОКИНГ ===
+docking:
+  # SMILES лиганда
+  ligand_smiles: "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"  # Кофеин (пример)
+  
+  # Количество генерируемых поз
+  num_poses: 20
+  
+  # Активный сайт (опционально, номера остатков)
+  # Если не указан - докинг в центр белка
+  binding_site: null
+  # Пример:
+  # binding_site: [10, 11, 12, 45, 46, 83, 84]
+
+# === МОЛЕКУЛЯРНАЯ ДИНАМИКА ===
+md_simulation:
+  # Метод: true = MACE (ML), false = OpenMM (классика)
+  use_mace: false  # Для начала используй OpenMM (стабильнее)
+  
+  # Устройство
+  device: cuda  # cuda или cpu
+  use_gpu: true
+  
+  # Параметры симуляции
+  temperature: 300.0  # Кельвин (37°C = 310 K)
+  
+  # Для MACE:
+  timestep: 1.0       # фемтосекунды
+  num_steps: 50000    # 50 пс
+  log_interval: 100
+  
+  # Для OpenMM:
+  box_padding: 1.2    # нм (размер водяного бокса)
+  ionic_strength: 0.15  # M (физиологическая)
+  equilibration_steps: 25000  # NVT + NPT
+  num_steps: 500000   # 1 нс при dt=2fs
+  report_interval: 1000
+
+# === АНАЛИЗ ===
+analysis:
+  # RMSD селекция
+  rmsd_selection: "protein and name CA"
+  
+  # Контакты
+  contact_cutoff: 4.5  # Ангстрем
+
+# === ВИЗУАЛИЗАЦИЯ ===
+visualization:
+  # Генерировать PNG графики
+  generate_plots: true
+  
+  # Интерактивная 3D (для Jupyter)
+  interactive_3d: false
