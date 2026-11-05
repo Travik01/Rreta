@@ -533,7 +533,7 @@ python scripts/04_batch_processing.py \
   title  = {Protein-Ligand MD Pipeline},
   author = {Maria Shaposhnik},
   year   = {2027},
-  url    = {https://github.com/your-repo/protein-ligand-md}
+  url    = {https://github.com/Travik01/Rreta/protein-ligand-md}
 }
 ```
 
