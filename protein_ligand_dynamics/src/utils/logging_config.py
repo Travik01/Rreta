@@ -1,52 +1,45 @@
-"""
-Конфигурация логирования для пайплайна.
-"""
+"""Настройка логирования."""
 
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def setup_logger(
     name: str,
-    log_file: Optional[str] = None,
-    level: int = logging.INFO
+    log_file: str | Path | None = None,
+    level: int = logging.INFO,
 ) -> logging.Logger:
-    """
-    Настройка логгера с выводом в консоль и файл.
-    
-    Args:
-        name: Имя логгера
-        log_file: Путь к файлу лога (опционально)
-        level: Уровень логирования
-    
-    Returns:
-        Настроенный logger
-    """
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    
-    # Формат
+    logger.propagate = False
+
     formatter = logging.Formatter(
-        '%(asctime)s | %(name)s | %(levelname)s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        "%(asctime)s | %(levelname)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
-    
-    # Консольный handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(level)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-    
-    # Файловый handler
+
+    has_console = any(
+        isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, logging.FileHandler)
+        for handler in logger.handlers
+    )
+    if not has_console:
+        console = logging.StreamHandler(sys.stdout)
+        console.setFormatter(formatter)
+        logger.addHandler(console)
+
     if log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    
+        path = Path(log_file).resolve()
+        has_file = any(
+            isinstance(handler, logging.FileHandler)
+            and Path(handler.baseFilename).resolve() == path
+            for handler in logger.handlers
+        )
+        if not has_file:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.FileHandler(str(path), encoding="utf-8")
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+
     return logger
