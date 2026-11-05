@@ -1,19 +1,20 @@
-# Makefile для быстрых команд
-
-.PHONY: install test clean run analyze visualize help
+.PHONY: help install test test-fast run analyze visualize clean clean-results docker-build docker-run
 
 help:
 	@echo "Доступные команды:"
-	@echo "  make install     - Установка окружения"
-	@echo "  make test        - Запуск тестов"
-	@echo "  make run         - Запуск примера пайплайна"
-	@echo "  make analyze     - Анализ результатов"
-	@echo "  make visualize   - Визуализация"
-	@echo "  make clean       - Очистка временных файлов"
+	@echo "  make install       - создать Conda-окружение"
+	@echo "  make test          - запустить тесты"
+	@echo "  make test-fast     - запустить быстрые тесты"
+	@echo "  make run           - запустить пайплайн"
+	@echo "  make analyze       - проанализировать траекторию"
+	@echo "  make visualize     - построить визуализации"
+	@echo "  make clean         - удалить кэш и сборки"
+	@echo "  make clean-results - удалить каталоги результатов"
+	@echo "  make docker-build  - собрать образ"
+	@echo "  make docker-run    - запустить контейнер"
 
 install:
 	conda env create -f environment.yml
-	@echo "✓ Окружение создано. Активируй: conda activate protein_dynamics"
 
 test:
 	pytest tests/ -v --tb=short
@@ -49,16 +50,8 @@ clean:
 clean-results:
 	rm -rf results/ *_results/ output/ *_output/
 
-format:
-	black src/ scripts/ tests/
-	isort src/ scripts/ tests/
-
-lint:
-	flake8 src/ scripts/ tests/
-	mypy src/
-
 docker-build:
 	docker build -t protein-ligand-md .
 
 docker-run:
-	docker run -v $(PWD)/data:/data protein-ligand-md
+	docker run -v $(PWD)/results:/app/results protein-ligand-md
