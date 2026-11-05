@@ -1,296 +1,172 @@
-"""
-Простой докинг лиганда (геометрический + оптимизация).
-Fallback если DiffDock недоступен.
-"""
+"""Геометрический докинг лиганда в структуру белка."""
+
+import logging
+from pathlib import Path
 
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from pathlib import Path
-from typing import Tuple, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class SimpleDocking:
-    """
-    Простой докинг:
-    1. Генерирует 3D лиганда
-    2. Находит центр масс белка (или активный сайт)
-    3. Размещает лиганд с случайными ориентациями
-    4. Оптимизирует геометрию
-    """
-    
     def __init__(self, num_poses: int = 10, seed: int = 42):
         self.num_poses = num_poses
-        self.seed = seed
-        np.random.seed(seed)
-    
+        self.rng = np.random.default_rng(seed)
+
     def dock(
         self,
         protein_pdb: str,
         ligand_smiles: str,
         output_dir: str = "docking_results",
-        binding_site_residues: Optional[List[int]] = None
-    ) -> List[Tuple[str, float]]:
-        """
-        Выполняет докинг.
-        
-        Args:
-            protein_pdb: Путь к PDB белка
-            ligand_smiles: SMILES лиганда
-            output_dir: Папка для результатов
-            binding_site_residues: Номера остатков активного сайта (опц.)
-        
-        Returns:
-            List[(путь_к_pdb, энергия)]
-        """
+        binding_site_residues: list[int] | None = None,
+    ) -> list[tuple[str, float]]:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        
-        print(f"[Docking] Простой докинг...")
-        print(f"          SMILES: {ligand_smiles}")
-        
-        # 1. Генерация 3D лиганда
+
+        logger.info("Докинг %s, поз: %d", ligand_smiles, self.num_poses)
         mol = self._prepare_ligand(ligand_smiles)
-        
-        # 2. Поиск центра связывания
+
         if binding_site_residues:
             center = self._get_binding_site_center(protein_pdb, binding_site_residues)
         else:
             center = self._get_protein_center(protein_pdb)
-        
-        print(f"          Центр: ({center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f})")
-        
-        # 3. Генерация поз
+
         poses = []
-        
         for i in range(self.num_poses):
-            # Клонируем молекулу
-            mol_copy = Chem.Mol(mol)
-            
-            # Случайная ориентация
-            mol_oriented = self._random_orientation(mol_copy)
-            
-            # Размещение в центре
-            mol_placed = self._place_at_center(mol_oriented, center)
-            
-            # Оптимизация
-            energy = self._optimize_geometry(mol_placed)
-            
-            # Сохранение
-            pose_path = output_path / f"pose_{i+1}.pdb"
-            Chem.MolToPDBFile(mol_placed, str(pose_path))
-            
+            oriented = self._random_orientation(Chem.Mol(mol))
+            placed = self._place_at_center(oriented, center)
+            energy = self._optimize_geometry(placed)
+            pose_path = output_path / f"pose_{i + 1}.pdb"
+            Chem.MolToPDBFile(placed, str(pose_path))
             poses.append((str(pose_path), energy))
-        
-        # Сортировка по энергии
-        poses.sort(key=lambda x: x[1])
-        
-        print(f"[Docking] ✓ Сгенерировано {len(poses)} поз")
-        print(f"          Лучшая энергия: {poses[0][1]:.2f} ккал/моль")
-        
+
+        poses.sort(key=lambda item: item[1])
+        if poses:
+            logger.info("Поз: %d, лучшая энергия: %.2f", len(poses), poses[0][1])
+
         return poses
-    
+
     def _prepare_ligand(self, smiles: str) -> Chem.Mol:
-        """Генерация 3D конформера."""
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
-            raise ValueError(f"Невалидный SMILES: {smiles}")
-        
-        # Добавление водородов
+            raise ValueError(f"Некорректный SMILES: {smiles}")
+
         mol = Chem.AddHs(mol)
-        
-        # Генерация 3D
         params = AllChem.ETKDGv3()
-        params.randomSeed = self.seed
+        params.randomSeed = int(self.rng.integers(0, 2**31 - 1))
 
-        if AllChem.EmbedMolecule(mol, params) != 0:
-            # Fallback
-            if AllChem.EmbedMolecule(mol, AllChem.ETKDG()) != 0:
-                raise ValueError(
-                    f"Не удалось сгенерировать 3D-структуру для SMILES: {smiles}"
-                )
+        if (
+            AllChem.EmbedMolecule(mol, params) != 0
+            and AllChem.EmbedMolecule(mol, AllChem.ETKDG()) != 0
+        ):
+            raise ValueError(f"Не удалось построить 3D-структуру для SMILES: {smiles}")
 
-        # Оптимизация (если MMFF недоступен - пробуем UFF, иначе пропускаем)
         try:
             AllChem.MMFFOptimizeMolecule(mol, maxIters=500)
-        except Exception:
+        except (RuntimeError, ValueError):
             try:
                 AllChem.UFFOptimizeMolecule(mol, maxIters=500)
-            except Exception:
-                pass
+            except (RuntimeError, ValueError):
+                logger.warning("Оптимизация конформера недоступна для %s", smiles)
 
         return mol
-    
+
     @staticmethod
     def _get_protein_center(pdb_path: str) -> np.ndarray:
-        """Центр масс всех атомов белка."""
         coords = []
-        
-        with open(pdb_path) as f:
-            for line in f:
+        with open(pdb_path, encoding="utf-8") as handle:
+            for line in handle:
                 if line.startswith("ATOM"):
-                    x = float(line[30:38])
-                    y = float(line[38:46])
-                    z = float(line[46:54])
-                    coords.append([x, y, z])
-        
+                    coords.append(
+                        [float(line[30:38]), float(line[38:46]), float(line[46:54])]
+                    )
+
         if not coords:
-            raise ValueError("Нет атомов в PDB файле")
-        
+            raise ValueError("В PDB нет атомов белка")
+
         return np.mean(coords, axis=0)
-    
+
     @staticmethod
-    def _get_binding_site_center(pdb_path: str, residues: List[int]) -> np.ndarray:
-        """Центр активного сайта."""
+    def _get_binding_site_center(pdb_path: str, residues: list[int]) -> np.ndarray:
         coords = []
-        
-        with open(pdb_path) as f:
-            for line in f:
-                if line.startswith("ATOM"):
-                    resnum = int(line[22:26].strip())
-                    if resnum in residues:
-                        x = float(line[30:38])
-                        y = float(line[38:46])
-                        z = float(line[46:54])
-                        coords.append([x, y, z])
-        
+        with open(pdb_path, encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("ATOM") and int(line[22:26].strip()) in residues:
+                    coords.append(
+                        [float(line[30:38]), float(line[38:46]), float(line[46:54])]
+                    )
+
         if not coords:
             raise ValueError(f"Остатки {residues} не найдены в PDB")
-        
+
         return np.mean(coords, axis=0)
-    
+
     def _random_orientation(self, mol: Chem.Mol) -> Chem.Mol:
-        """Случайная ориентация молекулы."""
+        alpha, beta, gamma = self.rng.uniform(0, 2 * np.pi, 3)
+
+        rz_alpha = np.array(
+            [[np.cos(alpha), -np.sin(alpha), 0], [np.sin(alpha), np.cos(alpha), 0], [0, 0, 1]]
+        )
+        ry_beta = np.array(
+            [[np.cos(beta), 0, np.sin(beta)], [0, 1, 0], [-np.sin(beta), 0, np.cos(beta)]]
+        )
+        rz_gamma = np.array(
+            [[np.cos(gamma), -np.sin(gamma), 0], [np.sin(gamma), np.cos(gamma), 0], [0, 0, 1]]
+        )
+        rotation = rz_gamma @ ry_beta @ rz_alpha
+
         conf = mol.GetConformer()
-        
-        # Случайная матрица поворота
-        # Используем случайные углы Эйлера
-        alpha = np.random.uniform(0, 2*np.pi)
-        beta = np.random.uniform(0, 2*np.pi)
-        gamma = np.random.uniform(0, 2*np.pi)
-        
-        # Матрица поворота
-        Rz_alpha = np.array([
-            [np.cos(alpha), -np.sin(alpha), 0],
-            [np.sin(alpha), np.cos(alpha), 0],
-            [0, 0, 1]
-        ])
-        
-        Ry_beta = np.array([
-            [np.cos(beta), 0, np.sin(beta)],
-            [0, 1, 0],
-            [-np.sin(beta), 0, np.cos(beta)]
-        ])
-        
-        Rz_gamma = np.array([
-            [np.cos(gamma), -np.sin(gamma), 0],
-            [np.sin(gamma), np.cos(gamma), 0],
-            [0, 0, 1]
-        ])
-        
-        R = Rz_gamma @ Ry_beta @ Rz_alpha
-        
-        # Применение поворота
         for i in range(mol.GetNumAtoms()):
             pos = conf.GetAtomPosition(i)
-            pos_vec = np.array([pos.x, pos.y, pos.z])
-            new_pos = R @ pos_vec
+            new_pos = rotation @ np.array([pos.x, pos.y, pos.z])
             conf.SetAtomPosition(i, tuple(new_pos))
-        
+
         return mol
-    
+
     def _place_at_center(self, mol: Chem.Mol, center: np.ndarray) -> Chem.Mol:
-        """Размещает молекулу в заданном центре."""
         conf = mol.GetConformer()
-        
-        # Текущий центр лиганда
-        lig_coords = []
+        coords = np.array(
+            [[p.x, p.y, p.z] for p in (conf.GetAtomPosition(i) for i in range(mol.GetNumAtoms()))]
+        )
+        shift = center - coords.mean(axis=0) + self.rng.normal(0, 2.0, 3)
+
         for i in range(mol.GetNumAtoms()):
             pos = conf.GetAtomPosition(i)
-            lig_coords.append([pos.x, pos.y, pos.z])
-        
-        lig_center = np.mean(lig_coords, axis=0)
-        
-        # Сдвиг
-        shift = center - lig_center
-        
-        # Добавляем небольшую случайность (±2 Å)
-        shift += np.random.randn(3) * 2.0
-        
-        for i in range(mol.GetNumAtoms()):
-            pos = conf.GetAtomPosition(i)
-            new_pos = [
-                pos.x + shift[0],
-                pos.y + shift[1],
-                pos.z + shift[2]
-            ]
-            conf.SetAtomPosition(i, tuple(new_pos))
-        
+            conf.SetAtomPosition(i, (pos.x + shift[0], pos.y + shift[1], pos.z + shift[2]))
+
         return mol
-    
+
     @staticmethod
     def _optimize_geometry(mol: Chem.Mol, max_iters: int = 500) -> float:
-        """Оптимизация геометрии (MMFF)."""
         props = AllChem.MMFFGetMoleculeProperties(mol)
-        ff = AllChem.MMFFGetMoleculeForceField(mol, props) if props is not None else None
+        force_field = AllChem.MMFFGetMoleculeForceField(mol, props) if props is not None else None
 
-        if ff is None:
-            # Fallback на UFF
-            ff = AllChem.UFFGetMoleculeForceField(mol)
-
-        if ff is None:
-            # Нет доступного силового поля - возвращаем нулевую энергию
+        if force_field is None:
+            force_field = AllChem.UFFGetMoleculeForceField(mol)
+        if force_field is None:
             return 0.0
 
-        ff.Minimize(maxIts=max_iters)
-        energy = ff.CalcEnergy()
+        force_field.Minimize(maxIts=max_iters)
+        return float(force_field.CalcEnergy())
 
-        return energy
-    
-    def create_complex(
-        self,
-        protein_pdb: str,
-        ligand_pdb: str,
-        output_pdb: str
-    ):
-        """Объединяет белок и лиганд в один PDB."""
-        with open(output_pdb, "w") as out:
-            # Белок
-            with open(protein_pdb) as f:
-                for line in f:
+    def create_complex(self, protein_pdb: str, ligand_pdb: str, output_pdb: str):
+        with open(output_pdb, "w", encoding="utf-8") as out:
+            with open(protein_pdb, encoding="utf-8") as handle:
+                for line in handle:
                     if line.startswith("ATOM"):
                         out.write(line)
-            
+
             out.write("TER\n")
-            
-            # Лиганд (меняем цепь на L)
-            with open(ligand_pdb) as f:
-                for line in f:
-                    if line.startswith("ATOM") or line.startswith("HETATM"):
-                        # Замена цепи
+
+            with open(ligand_pdb, encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith(("ATOM", "HETATM")):
                         line = line[:21] + "L" + line[22:]
-                        # Замена остатка
                         line = line[:17] + "LIG" + line[20:]
                         out.write(line)
-            
+
             out.write("END\n")
-        
-        print(f"[Docking] ✓ Комплекс: {output_pdb}")
 
-
-# ============ ТЕСТ ============
-if __name__ == "__main__":
-    docker = SimpleDocking(num_poses=5)
-    
-    poses = docker.dock(
-        protein_pdb="test_data/protein.pdb",
-        ligand_smiles="CC(=O)OC1=CC=CC=C1C(=O)O",
-        output_dir="test_docking"
-    )
-    
-    # Создание комплекса с лучшей позой
-    docker.create_complex(
-        "test_data/protein.pdb",
-        poses[0][0],
-        "test_docking/complex.pdb"
-    )
+        logger.info("Комплекс сохранён: %s", output_pdb)
