@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+title: "Protein-Ligand Molecular Dynamics Pipeline"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: "Shaposhnik"
+    given-names: "Maria"
+    affiliation: "Tyumen State University Gymnasium"
+date-released: "2026-11-05"
+url: "https://github.com/Travik01/Rreta"
+repository-code: "https://github.com/Travik01/Rreta"
+license: MIT
+version: "1.0.0"
+keywords:
+  - molecular dynamics
+  - protein-ligand
+  - ESMFold
+  - DiffDock
+  - MACE
+  - drug discovery
