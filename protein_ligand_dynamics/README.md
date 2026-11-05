@@ -531,8 +531,8 @@ python scripts/04_batch_processing.py \
 ```bibtex
 @software{protein_ligand_md,
   title  = {Protein-Ligand MD Pipeline},
-  author = {Your Name},
-  year   = {2024},
+  author = {Maria Shaposhnik},
+  year   = {2027},
   url    = {https://github.com/your-repo/protein-ligand-md}
 }
 ```
